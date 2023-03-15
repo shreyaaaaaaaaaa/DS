@@ -1,0 +1,268 @@
+---
+title: "DS Project - IST687"
+author: "Parth, Simranjeet, Chase, Chi, Shreya"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r}
+library(tidyverse);library(dplyr);library(arules);library(arulesViz);library(ggplot2);library(caret);library(ggplot2); library(GGally); library(rpart);library(rpart.plot);library(caret);library(tidyverse);library(rworldmap);library(RColorBrewer); library(imputeTS); library(ISLR)
+```
+
+## Project 687 - Group Alpha
+
+###Exploratory Data Analysis
+
+```{r}
+#reading the data
+hotel_df <- read_csv('https://intro-datascience.s3.us-east-2.amazonaws.com/Resort01.csv') 
+#Taking a look at the variables 
+str(hotel_df)
+summary(hotel_df)
+```
+
+##Data Cleaning
+
+```{r}
+#Checking for missing values in the integer variables
+
+hotel_df %>% filter(IsCanceled == 'NA')
+hotel_df %>% filter(LeadTime == 'NA')
+hotel_df %>% filter(StaysInWeekendNights && StaysInWeekNights == 'NA')
+hotel_df %>% filter(Adults && Children && Babies == 'NA')
+hotel_df %>% filter(PreviousCancellations && PreviousBookingsNotCanceled && BookingChanges && RequiredCarParkingSpaces && TotalOfSpecialRequests == 'NA')
+
+#Checking for missing values for the categorical variables
+
+table(hotel_df$Meal)
+table(hotel_df$Country)
+table(hotel_df$MarketSegment) 
+table(hotel_df$IsRepeatedGuest)
+table(hotel_df$ReservedRoomType)
+table(hotel_df$AssignedRoomType)
+table(hotel_df$DepositType)
+table(hotel_df$CustomerType)
+
+#Subsetting the data into cancelled / not cancelled
+cancelled_df <- hotel_df[hotel_df$IsCanceled == 1,]
+not_cancelled_df <- hotel_df[hotel_df$IsCanceled == 0,]  
+
+```
+
+##Data Visualization
+####Bar plots, Histograms and box plots
+
+```{r}
+#Boxplots of the the cancellations wrt to Market segments
+ggplot(data = hotel_df, aes(x = MarketSegment,y = LeadTime,fill = factor(IsCanceled))) +
+  geom_boxplot() +
+  labs(
+    title = "Cancellation based on Market Types",
+    subtitle = "Based on Lead Time",
+    x = "Market Type",
+    y = "Lead Time (Days)"
+  ) +
+  scale_fill_discrete(
+    name = "Booking Status",
+    breaks = c("1", "0"),
+    labels = c("Cancelled", "Not Cancelled")
+  ) + theme_light()
+
+
+#checking Cancellations of customer types 
+ggplot(data = hotel_df,aes(IsCanceled))+ geom_histogram(stat= "count", binwidth = 0.5, col='black', fill='blue', alpha = 0.4)  + xlab("Cancelled v/s Not Cancelled Bookings") + facet_wrap(~CustomerType)
+
+
+#Classification into deposit types according to the customer type
+hotel_df%>%
+  ggplot(aes(x=CustomerType,fill=factor(IsCanceled)))+
+  geom_bar(position=position_dodge())+facet_grid(.~DepositType)+ylab('No. of cancellations')+
+  scale_fill_discrete(
+    name = "Booking Status",
+    breaks = c("1", "0"),
+    labels = c("Cancelled", "Not Cancelled"))+  theme_light() + theme(axis.text.x = element_text(angle = 90))
+
+
+
+table(hotel_df$IsRepeatedGuest)
+#Plotting the customers types who are repeated and making cancellations
+ggplot(data = hotel_df,aes(IsRepeatedGuest))+ geom_histogram(stat= 'count', binwidth = 0.5, col='black', fill='blue', alpha = 0.4) + facet_wrap(~CustomerType)
+
+#checking various market segments who are facing cancellations cancellations
+hotel_df%>%group_by(MarketSegment)%>%summarise(Count = n())%>%arrange(-Count)%>%ggplot(aes(x = MarketSegment, y = Count)) + geom_bar(stat = 'identity',fill = "darkmagenta") + coord_flip()
+
+#people making the special requests making cancellations
+hotel_df %>% ggplot(aes(x=TotalOfSpecialRequests,fill=factor(IsCanceled))) + geom_bar(aes(x=TotalOfSpecialRequests, fill= factor(IsCanceled)))
+
+#checking which rooms are assigned maximum and chances of geting cancellations based on the rooms
+hotel_df%>%ggplot(aes(x=AssignedRoomType,fill=factor(IsCanceled)))+geom_bar(position = position_dodge())
+```
+###Analysis using maps
+```{r}
+#The below code is to create world level polygons to plot the map. The aggregate functions are used for gradients. Gradient is based on Number of Cancellations and Avg lead time countrywise.
+new_hotel_df <- hotel_df
+new_hotel_df_CountryLevel <- new_hotel_df %>% group_by(Country) %>% summarize(number_of_cancellations = sum(IsCanceled), avg_lead_time = mean(LeadTime))
+
+new_hotel_df_CountryMerge <- merge(new_hotel_df, new_hotel_df_CountryLevel, by.x = "Country", by.y = "Country")
+#colour palletes for the world map
+color_palette <- brewer.pal(5,'Blues')
+color_palette1 <- brewer.pal(5,'BuGn')
+color_palette2 <- brewer.pal(5,"PuRd")
+
+countryHotelsData <- joinCountryData2Map(new_hotel_df_CountryMerge, joinCode = "ISO3",nameJoinColumn = "Country")
+
+
+#map of cancellatins from the regions
+Number_of_Cancellations <- mapCountryData(countryHotelsData,nameColumnToPlot="number_of_cancellations",mapTitle = "Number of Cancellations",colourPalette=color_palette1,catMethod = "categorical", addLegend = FALSE)
+
+#map of average lead time with respect to cancellations cancellations from various countries 
+Avg_Lead_Time <- mapCountryData(countryHotelsData,nameColumnToPlot = "avg_lead_time",colourPalette=color_palette2,catMethod = "categorical",mapTitle = "Average lead time", addLegend = FALSE)
+
+#Customer type group by
+new_hotel_customer_type <- new_hotel_df %>% group_by(Country,CustomerType) %>% summarize(number_of_cancellations = sum(IsCanceled),avg_lead_time=mean(LeadTime))
+new_hotel_customer_type_merge <- merge(new_hotel_df,new_hotel_customer_type, by.x = "Country", by.y = "Country")
+
+
+#Creating the transient type customer dataframe
+cust_transient <- new_hotel_customer_type_merge %>% filter(CustomerType.x== "Transient")
+
+cust_transient <- joinCountryData2Map(cust_transient, joinCode = "ISO3",nameJoinColumn = "Country")
+#map to transient customer making cancellations from countries
+transient_type <- mapCountryData(cust_transient,nameColumnToPlot = "avg_lead_time",mapTitle = "Transient type customer cancellations",colourPalette =color_palette,catMethod = "categorical",addLegend = FALSE )
+```
+
+##Performing associative mining on the dataset
+
+```{r}
+#Create better dataframe. Allows for transactions
+data_new <- data.frame(CustomerType = as.factor(new_hotel_df$CustomerType),
+                       AssignedRoomType = as.factor(new_hotel_df$AssignedRoomType),
+                       MarketSegment = as.factor(new_hotel_df$MarketSegment), 
+                       Meal = as.factor(new_hotel_df$Meal),
+                       ReservedRoomType = as.factor(new_hotel_df$ReservedRoomType),
+                       Adults = as.factor(new_hotel_df$Adults),
+                       Children = as.factor(new_hotel_df$Children),
+                       Babies = as.factor(new_hotel_df$Babies),
+                       IsRepeatedGuest = as.factor(new_hotel_df$IsRepeatedGuest),
+                       LeadTime = as.factor(new_hotel_df$LeadTime<median(new_hotel_df$LeadTime)),
+                       StaysInWeekendNights = as.factor(new_hotel_df$StaysInWeekendNights<median(new_hotel_df$StaysInWeekendNights)),
+                       StaysInWeekNights = as.factor(new_hotel_df$StaysInWeekNights<median(new_hotel_df$StaysInWeekNights)),
+                       PreviousCancellations = as.factor(new_hotel_df$PreviousCancellations),
+                       PreviousBookingsNotCancelled = as.factor(new_hotel_df$PreviousBookingsNotCanceled),
+                       BookingChanged = as.factor(new_hotel_df$BookingChanges),
+                       RequiredCarParkingSpaces = as.factor(new_hotel_df$RequiredCarParkingSpaces),
+                       TotalOfSpecialRequests = as.factor(new_hotel_df$TotalOfSpecialRequests),
+                       Detractor = as.factor(new_hotel_df$IsCanceled))
+#How often is it true
+prop.table(table(data_new$Detractor))
+
+#Pie chart of probability
+pie(prop.table(table(data_new$Detractor)), labels = c("Not Cancelled (72.2%)", "Cancelled (27.8%)"))
+
+dataX <- as(data_new, "transactions")
+itemFrequencyPlot(dataX,topN=10)
+
+inspect(dataX[1:10]) 
+
+#Create the rules
+ruleset <- apriori(data_new,
+                   parameter=list(supp=0.25, conf=0.01),
+                   control=list(verbose=F),
+                   appearance=list(default="lhs",rhs=("Detractor=1")))
+inspectDT(ruleset)
+
+#Visualization of the rules
+plot(ruleset)
+
+#Second One (Filtered More. Just the top right version of the top plot) 
+ruleset2 <- apriori(data_new,
+                   parameter=list(supp=0.16, conf=0.5),
+                   control=list(verbose=F),
+                   appearance=list(default="lhs",rhs=("Detractor=1")))
+inspect(ruleset2)
+
+#Visualization of the filtered rules
+plot(ruleset2)
+```
+###Supervised learning models
+
+```{r}
+#Classification & Regression Trees
+#Model 1: No test & training data
+
+new_hotel_df$IsCanceled <- as.factor(new_hotel_df$IsCanceled)
+
+cartTreeM1 <- rpart(IsCanceled ~., data=new_hotel_df)
+prp(cartTreeM1, faclen=0, cex=0.8, extra=1)
+cartTreeM1
+
+predictValuesM1 <- predict(cartTreeM1, newdata=new_hotel_df, type="class")
+predictValuesM1[1:10]
+
+actualCanceledM1 <- as.factor(new_hotel_df$IsCanceled == "1")
+confMatrixM1 <- table(predictValuesM1, actualCanceledM1)
+confMatrixM1
+
+accuracy <- 1 - (sum(confMatrixM1) - sum(diag(confMatrixM1))) / sum(confMatrixM1)
+accuracy #82.21%
+
+#Model 2: Using test & training data: Partition
+
+set.seed(100)
+new_hotel_df$Country <- as.factor(new_hotel_df$Country)
+new_hotel_df$AssignedRoomType <- as.factor(new_hotel_df$AssignedRoomType)
+trainListM2 <- createDataPartition(y=new_hotel_df$IsCanceled, p=0.7, list=FALSE)
+trainSetM2 <- new_hotel_df[trainListM2, ]
+testSetM2 <- new_hotel_df[-trainListM2, ]
+
+cartTreeM2 <- rpart(IsCanceled ~., data=trainSetM2)
+
+levels(droplevels(testSetM2$Country))
+predictValuesM2 <- predict(cartTreeM2, newdata=testSetM2, type="class")
+confMatrixM2 <- confusionMatrix(predictValuesM2, testSetM2$IsCanceled)
+confMatrixM2
+
+confMatrixM2$overall[1]
+#Accuracy = 82.566
+
+```
+##SVM model
+```{r}
+library(caret)
+library(kernlab)
+#creating the data frame with converting the variable in the factor
+data_new1 <- data.frame(CustomerType = as.factor(new_hotel_df$CustomerType),
+                       Babies = as.factor(new_hotel_df$Babies),
+                       IsRepeatedGuest = as.factor(new_hotel_df$IsRepeatedGuest),
+                       LeadTime = as.factor(new_hotel_df$LeadTime<median(new_hotel_df$LeadTime)),
+                       PreviousCancellations = as.factor(new_hotel_df$PreviousCancellations),
+                       PreviousBookingsNotCancelled=as.factor(new_hotel_df$PreviousBookingsNotCanceled),
+                       RequiredCarParkingSpaces = as.factor(new_hotel_df$RequiredCarParkingSpaces),
+                       Detractor = as.factor(new_hotel_df$IsCanceled))
+#partitioning the data set into the training and test set in ratio 60:40
+trainListM3_soham <- createDataPartition(y=data_new1$Detractor, p=0.6, list=FALSE)
+trainSetM3 <- data_new1[trainListM3_soham, ]
+
+str(trainSetM3)
+testSetM3 <- data_new1[-trainListM3_soham, ]
+
+#creating the svm model
+svm_model <- ksvm(Detractor~., data = trainSetM3, C = 3, cross = 5 , prob.model= TRUE)
+svm_model
+#predicting the variable using the testset and generating  the confusion matrix
+predDF <- predict(svm_model, testSetM3)
+
+confusionMatrix(predDF,testSetM3$Detractor)
+
+```
+
+
+
+
